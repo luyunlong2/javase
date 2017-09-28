@@ -42,9 +42,6 @@ public class NotInitialization
 }
 运行结果：
 
-1
-2
-3
 SSClass
 SuperClass init!
 123
@@ -96,15 +93,6 @@ public static int value=123;
 类初始化阶段是类加载过程的最后一步，到了初始化阶段，才真正开始执行类中定义的java程序代码。在准备极端，变量已经付过一次系统要求的初始值，而在初始化阶段，则根据程序猿通过程序制定的主管计划去初始化类变量和其他资源，或者说：初始化阶段是执行类构造器<clinit>()方法的过程.
 <clinit>()方法是由编译器自动收集类中的所有类变量的赋值动作和静态语句块static{}中的语句合并产生的，编译器收集的顺序是由语句在源文件中出现的顺序所决定的，静态语句块只能访问到定义在静态语句块之前的变量，定义在它之后的变量，在前面的静态语句块可以赋值，但是不能访问。如下：
 
-1
-2
-3
-4
-5
-6
-7
-8
-9
 public class Test
 {
     static
@@ -120,41 +108,7 @@ public class Test
 接口中不能使用静态语句块，但仍然有变量初始化的赋值操作，因此接口与类一样都会生成<clinit>()方法。但接口与类不同的是，执行接口的<clinit>()方法不需要先执行父接口的<clinit>()方法。只有当父接口中定义的变量使用时，父接口才会初始化。另外，接口的实现类在初始化时也一样不会执行接口的<clinit>()方法。
 虚拟机会保证一个类的<clinit>()方法在多线程环境中被正确的加锁、同步，如果多个线程同时去初始化一个类，那么只会有一个线程去执行这个类的<clinit>()方法，其他线程都需要阻塞等待，直到活动线程执行<clinit>()方法完毕。如果在一个类的<clinit>()方法中有好事很长的操作，就可能造成多个线程阻塞，在实际应用中这种阻塞往往是隐藏的。
 
-1
-2
-3
-4
-5
-6
-7
-8
-9
-10
-11
-12
-13
-14
-15
-16
-17
-18
-19
-20
-21
-22
-23
-24
-25
-26
-27
-28
-29
-30
-31
-32
-33
-34
-35
+
 package jvm.classload;
  
 public class DealLoopTest
@@ -192,27 +146,13 @@ public class DealLoopTest
 }
 运行结果：（即一条线程在死循环以模拟长时间操作，另一条线程在阻塞等待）
 
-1
-2
-3
 Thread[Thread-0,5,main] start
 Thread[Thread-1,5,main] start
 Thread[Thread-0,5,main]init DeadLoopClass
 需要注意的是，其他线程虽然会被阻塞，但如果执行<clinit>()方法的那条线程退出<clinit>()方法后，其他线程唤醒之后不会再次进入<clinit>()方法。同一个类加载器下，一个类型只会初始化一次。
 将上面代码中的静态块替换如下：
 
-1
-2
-3
-4
-5
-6
-7
-8
-9
-10
-11
-12
+
 static
         {
             System.out.println(Thread.currentThread() + "init DeadLoopClass");
@@ -227,11 +167,6 @@ static
         }
 运行结果：
 
-1
-2
-3
-4
-5
 Thread[Thread-0,5,main] start
 Thread[Thread-1,5,main] start
 Thread[Thread-1,5,main]init DeadLoopClass (之后sleep 10s)
@@ -248,13 +183,7 @@ Thread[Thread-0,5,main] run over
 这里再举两个例子。
 1. 通过数组定义来引用类，不会触发此类的初始化：（SuperClass类已在本文开篇定义）
 
-1
-2
-3
-4
-5
-6
-7
+
 public class NotInitialization
 {
     public static void main(String[] args)
@@ -265,21 +194,7 @@ public class NotInitialization
 运行结果：（无）
 2. 常量在编译阶段会存入调用类的常量池中，本质上并没有直接引用到定义常量的类，因此不会触发定义常量的类的初始化：
 
-1
-2
-3
-4
-5
-6
-7
-8
-9
-10
-11
-12
-13
-14
-15
+
 public class ConstClass
 {
     static
@@ -299,39 +214,7 @@ public class NotInitialization
 
 附：昨天从论坛上看到一个例子，很有意思，如下：
 
-1
-2
-3
-4
-5
-6
-7
-8
-9
-10
-11
-12
-13
-14
-15
-16
-17
-18
-19
-20
-21
-22
-23
-24
-25
-26
-27
-28
-29
-30
-31
-32
-33
+
 package jvm.classload;
  
 public class StaticTest
