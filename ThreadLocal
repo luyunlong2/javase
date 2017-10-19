@@ -1,0 +1,242 @@
+ThreadLocal源码剖析
+
+ThreadLocal其实比较简单，因为类里就三个public方法：set(T value)、get()、remove()。先剖析源码清楚地知道ThreadLocal是干什么用的、再使用、最后总结，讲解ThreadLocal采取这样的思路。
+
+ 
+
+三个理论基础
+
+在剖析ThreadLocal源码前，先讲一下ThreadLocal的三个理论基础：
+
+1、每个线程都有一个自己的ThreadLocal.ThreadLocalMap对象
+
+2、每一个ThreadLocal对象都有一个循环计数器
+
+3、ThreadLocal.get()取值，就是根据当前的线程，获取线程中自己的ThreadLocal.ThreadLocalMap，然后在这个Map中根据第二点中循环计数器取得一个特定value值
+
+ 
+
+两个数学问题
+
+1、ThreadLocal.ThreadLocalMap规定了table的大小必须是2的N次幂
+
+/**
+ * The table, resized as necessary.
+ * table.length MUST always be a power of two.
+ */
+private Entry[] table;
+因为从计算机的角度讲，对位操作的效率比数学运算要高
+
+int i = firstKey.threadLocalHashCode & (INITIAL_CAPACITY - 1);
+比方说当前table长度是16，那么16-1=15，也就是二进制的1111。现在有一个数字是23，也就是二进制的00010111。23%16=7，看下&运算：
+
+00010111
+
+      &
+
+00001111=
+
+00000111
+
+00000111也就是7，和取模运算结果一样，效率反而高。
+
+2、Hash增量设置为0x61c88647，也就是说ThreadLocal通过取模的方式取得table的某个位置的时候，会在原来的threadLocalHashCode的基础上加上0x61c88647
+
+/**
+ * The difference between successively generated hash codes - turns
+ * implicit sequential thread-local IDs into near-optimally spread
+ * multiplicative hash values for power-of-two-sized tables.
+ */
+private static final int HASH_INCREMENT = 0x61c88647;
+虽然不知道这是为什么，但是从对table.length取模的角度来看，试了一下length为16和32的情况：
+
+7 14 5 12 3 10 1 8 15 6 13 4 11 2 9 0 
+7 14 21 28 3 10 17 24 31 6 13 20 27 2 9 16 23 30 5 12 19 26 1 8 15 22 29 4 11 18 25 0 
+这样一来避免了Hash冲突，二来相邻的两个数字都比较分散。而且在2的N次幂过后，又从第一个数字开始循环了，这意味，threadLocalHashCode可以从任何地方开始
+
+有了这些理论基础，下面可以看一下ThreadLocal几个方法的实现原理。
+
+ 
+
+set(T value)
+
+一点点看set方法的源码：
+
+复制代码
+public void set(T value) {
+        Thread t = Thread.currentThread();
+        ThreadLocalMap map = getMap(t);
+        if (map != null)
+            map.set(this, value);
+        else
+            createMap(t, value);
+    }
+复制代码
+ThreadLocalMap getMap(Thread t) {
+        return t.threadLocals;
+    }
+/* ThreadLocal values pertaining to this thread. This map is maintained
+ * by the ThreadLocal class. */
+ThreadLocal.ThreadLocalMap threadLocals = null;
+和前面讲的一样：
+
+1、取得当前的线程
+
+2、获取线程里面的ThreadLocal.ThreadLocalMap
+
+3、看这个ThreadLocal.ThreadLocalMap是否存在，存在就设置一个值，不存在就给线程创建一个ThreadLocal.ThreadLocalMap
+
+第三点有两个分支，先看简单的创建Map的分支：
+
+void createMap(Thread t, T firstValue) {
+        t.threadLocals = new ThreadLocalMap(this, firstValue);
+    }
+复制代码
+ThreadLocalMap(ThreadLocal firstKey, Object firstValue) {
+            table = new Entry[INITIAL_CAPACITY];
+            int i = firstKey.threadLocalHashCode & (INITIAL_CAPACITY - 1);
+            table[i] = new Entry(firstKey, firstValue);
+            size = 1;
+            setThreshold(INITIAL_CAPACITY);
+        }
+复制代码
+private final int threadLocalHashCode = nextHashCode();
+private static int nextHashCode() {
+    return nextHashCode.getAndAdd(HASH_INCREMENT); 
+    }
+private static AtomicInteger nextHashCode = 
+    new AtomicInteger();
+这个Map中并没有next节点，所以，不得不说ThreadLocalMap是一个有点误导性的名字，它虽然叫做Map，但其实存储的方式不是链表法而是开地址法。看到设置table中的位置的时候，都把一个static的nextHashCode累加一下，这意味着，set的同一个value，可能在每个ThreadLocal.ThreadLocalMap中的table中的位置都不一样，不过这没关系。
+
+OK，看完了创建的分支，看一下设置的分支：
+
+复制代码
+private void set(ThreadLocal key, Object value) {
+
+            // We don't use a fast path as with get() because it is at
+            // least as common to use set() to create new entries as
+            // it is to replace existing ones, in which case, a fast
+            // path would fail more often than not.
+
+            Entry[] tab = table;
+            int len = tab.length;
+            int i = key.threadLocalHashCode & (len-1);
+
+            for (Entry e = tab[i];
+         e != null;
+         e = tab[i = nextIndex(i, len)]) {
+                ThreadLocal k = e.get();
+
+                if (k == key) {
+                    e.value = value;
+                    return;
+                }
+
+                if (k == null) {
+                    replaceStaleEntry(key, value, i);
+                    return;
+                }
+            }
+
+            tab[i] = new Entry(key, value);
+            int sz = ++size;
+            if (!cleanSomeSlots(i, sz) && sz >= threshold)
+                rehash();
+        }
+复制代码
+private static int nextIndex(int i, int len) {
+            return ((i + 1 < len) ? i + 1 : 0);
+        }
+理一下逻辑，设置的时候做了几步：
+
+1、先对ThreadLocal里面的threadLocalHashCode取模获取到一个table中的位置
+
+2、这个位置上如果有数据，获取这个位置上的ThreadLocal
+
+（1）判断一下位置上的ThreadLocal和我本身这个ThreadLocal是不是一个ThreadLocal，是的话数据就覆盖，返回
+
+（2）不是同一个ThreadLocal，再判断一下位置上的ThreadLocal是是不是空的，这个解释一下。Entry是ThreadLocal弱引用，"static class Entry extends WeakReference<ThreadLocal>"，有可能这个ThreadLocal被垃圾回收了，这时候把新设置的value替换到当前位置上，返回
+
+（3）上面都没有返回，给模加1，看看模加1后的table位置上是不是空的，是空的再加1，判断位置上是不是空的...一直到找到一个table上的位置不是空的为止，往这里面塞一个value。换句话说，当table的位置上有数据的时候，ThreadLocal采取的是办法是找最近的一个空的位置设置数据。
+
+ 
+
+get()
+
+如果理解清楚了set(T value)，get()方法就很好理解了：
+
+复制代码
+public T get() {
+        Thread t = Thread.currentThread();
+        ThreadLocalMap map = getMap(t);
+        if (map != null) {
+            ThreadLocalMap.Entry e = map.getEntry(this);
+            if (e != null)
+                return (T)e.value;
+        }
+        return setInitialValue();
+    }
+复制代码
+复制代码
+private Entry getEntry(ThreadLocal key) {
+            int i = key.threadLocalHashCode & (table.length - 1);
+            Entry e = table[i];
+            if (e != null && e.get() == key)
+                return e;
+            else
+                return getEntryAfterMiss(key, i, e);
+        }
+复制代码
+复制代码
+private Entry getEntryAfterMiss(ThreadLocal key, int i, Entry e) {
+            Entry[] tab = table;
+            int len = tab.length;
+
+            while (e != null) {
+                ThreadLocal k = e.get();
+                if (k == key)
+                    return e;
+                if (k == null)
+                    expungeStaleEntry(i);
+                else
+                    i = nextIndex(i, len);
+                e = tab[i];
+            }
+            return null;
+        }
+复制代码
+理一下步骤：
+
+1、获取当前线程
+
+2、尝试去当前线程中拿它的ThreadLocal.ThreadLocalMap
+
+3、当前线程中判断是否有ThreadLocal.ThreadLocalMap
+
+（1）有就尝试根据当前ThreadLocal的threadLocalHashCode取模去table中取值，有就返回，没有就给模加1继续找，这和设置的算法是一样的
+
+（2）没有就调用set方法给当前线程ThreadLocal.ThreadLocalMap设置一个初始值
+
+ 
+
+remove()
+
+remove()方法就非常简单了：
+
+public void remove() {
+         ThreadLocalMap m = getMap(Thread.currentThread());
+         if (m != null)
+             m.remove(this);
+     }
+取得当前线程的ThreadLocal.ThreadLocalMap，如果有ThreadLocal.ThreadLocalMap，找到对应的Entry，移除掉就好了。
+
+ 
+
+总结
+
+上面分析了这么多源码，是比较细节地来看ThreadLocal了。对这些内容做一个总结，ThreadLocal的原理简单说应该是这样的：
+
+ThreadLocal不需要key，因为线程里面自己的ThreadLocal.ThreadLocalMap不是通过链表法实现的，而是通过开地址法实现的
+每次set的时候往线程里面的ThreadLocal.ThreadLocalMap中的table数组某一个位置塞一个值，这个位置由ThreadLocal中的threadLocaltHashCode取模得到，如果位置上有数据了，就往后找一个没有数据的位置
+每次get的时候也一样，根据ThreadLocal中的threadLocalHashCode取模，取得线程中的ThreadLocal.ThreadLocalMap中的table的一个位置，看一下有没有数据，没有就往下一个位置找
+既然ThreadLocal没有key，那么一个ThreadLocal只能塞一种特定数据。如果想要往线程里面的ThreadLocal.ThreadLocalMap里的table不同位置塞数据 ，比方说想塞三种String、一个Integer、两个Double、一个Date，请定义多个ThreadLocal，ThreadLocal支持泛型"public class ThreadLocal<T>"。 
