@@ -1,0 +1,101 @@
+Synchronized
+
+Synchronized是Java的关键字，当它用来修饰一个方法或一个代码块时，能够保证在同一时刻最多只有一个线程执行该代码。因为当调用Synchronized修饰的代码时，并不需要显示的加锁和解锁的过程，所以称之为隐式锁。
+
+Sychronized的用法：
+
+1、同步方法体，在方法声明中使用，如下：
+
+public synchronized void method(){
+        //方法体
+}
+
+2、同步代码块，修饰在代码块外层，指定加锁对象，如下：
+
+public void method2(){
+    synchronized (this) {
+    //一次只能有一个线程进入   
+    }
+}
+
+上述synchronized(this)指定了当前对象本身作为锁，和它持有相同对象锁的地方将产生互斥性。当一个线程访问method2的同步代码块时，它就获得了这个object的对象锁。其他的线程对该object所有同步代码部分的访问都被暂时的阻塞。
+
+sychronized的不同写法对程序响应的快慢和对资源高并发的利用程度不一样，性能和执行效率从差到优排序如下：
+
+同步方法体 < 同步代码块 < 小对象锁同步代码块
+1
+2
+小对象锁同步代码块指锁的对象的所占内存小，因为锁是对象，加锁和解锁都需要释放资源，那肯定是锁对象越小越好，实际应用如下：
+
+private byte[] lock = new byte[1];
+public void method3(){
+    synchronized (lock) {
+        //一次只能有一个线程进入   
+    }
+}
+
+Lock
+
+Lock是一个接口，提供了无条件的、可轮询的、定时的、可中断的锁获取操作，所有的加锁和解锁操作方法都是显示的，因而称为显示锁。 
+下面针对Lock的几个实现类ReentrantLock、ReentrantReadWriteLock.ReadLock和ReentrantReadWriteLock.WriteLock解析。
+
+ReentrantLock（可重入锁），是一个互斥的同步器，用ReentrantLock实现同步机制比sychronized实现更具伸缩性。使用如下：
+
+private final ReentrantLock lock = new ReentrantLock();
+    public void m(){
+        lock.lock();//获得锁
+        try{
+            //方法体
+        }finally{
+            lock.unlock();//务必释放锁
+        }
+    }
+
+注意：在使用ReentrantLock时，一定要有释放锁的操作。
+
+ReadWriteLock（读写锁）是一个接口，提供了readLock和writeLock两种锁的操作，也就是说一个资源能够被多个读线程访问，或者被一个写线程访问，但是不能同时存在读写线程。也就是说读写锁应用的场景是一个资源被大量读取操作，而只有少量的写操作。我们先看其源码：
+
+public interface ReadWriteLock {
+    Lock readLock();
+    Lock writeLock();
+
+从源码看出，ReadWriteLock借助Lock来实现读写两个锁并存、互斥的机制。每次读取共享数据就需要读取锁，需要修改共享数据就需要写入锁。
+
+读写锁的机制： 
+1、读-读不互斥，读线程可以并发执行； 
+2、读-写互斥，有写线程时，读线程会堵塞； 
+3、写-写互斥，写线程都是互斥的。
+
+使用方法：
+
+//创建ReentrantReadWriteLock对象
+    private ReentrantReadWriteLock rwl = new ReentrantReadWriteLock();
+
+    //抽取读写锁
+    private Lock readLock = rwl.readLock();
+    private Lock writeLock = rwl.writeLock();
+    public int getXXX(){
+        readLock.lock();
+        try{
+            //执行操作
+        }finally{
+            readLock.unlock();
+        }
+    }
+    public void setXXX(){
+        writeLock.lock();
+        try{
+            //执行操作
+        }finally{
+            writeLock.unlock();
+        }
+    }
+
+ReentrantReadWriteLock和ReentrantLock的比较： 
+ReentrantReadWriteLock是对ReentrantLock的复杂扩展，能适合更加复杂的业务场景，ReentrantReadWriteLock可以实现一个方法中读写分离的锁的机制。而ReentrantLock只是加锁解锁一种机制。
+
+最后对比Synchronized、ReentrantLock和ReentrantReadWriteLock：
+
+Synchronized是在JVM层面上实现的，无需显示的加解锁，而ReentrantLock和ReentrantReadWriteLock需显示的加解锁，一定要保证锁资源被释放；
+Synchronized是针对一个对象的，而ReentrantLock和ReentrantReadWriteLock是代码块层面的锁定；
+ReentrantReadWriteLock引入了读写和并发机制，可以实现更复杂的锁机制，并发性相对于ReentrantLock和Synchronized更高。
